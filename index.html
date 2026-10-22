@@ -1,0 +1,572 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Aplikasi Absensi Siswa Online</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <style>
+        body { font-family: 'Inter', sans-serif; background-color: #f8fafc; }
+        @media print { .no-print { display: none !important; } .print-only { display: block !important; } }
+    </style>
+</head>
+<body class="text-slate-800 antialiased min-h-screen flex flex-col justify-between">
+
+    <header class="bg-indigo-700 text-white shadow-md sticky top-0 z-30 no-print">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex items-center justify-between h-16">
+            <div class="flex items-center gap-3">
+                <div class="bg-white/10 p-2 rounded-lg"><i class="fa-solid fa-user-check text-2xl"></i></div>
+                <div>
+                    <h1 class="font-bold text-lg leading-tight">Absensi Siswa Online</h1>
+                    <p class="text-xs text-indigo-200">Sistem Presensi Digital Google Drive</p>
+                </div>
+            </div>
+            <button onclick="toggleModal('sheetConfigModal')" class="bg-indigo-800 hover:bg-indigo-900 text-xs px-3 py-2 rounded-lg font-medium flex items-center gap-2">
+                <i class="fa-solid fa-gear"></i> Hubungkan Google Sheet
+            </button>
+        </div>
+    </header>
+
+    <div id="sync-status-bar" class="bg-amber-500 text-white text-xs py-1.5 px-4 text-center font-medium no-print">
+        <i class="fa-solid fa-triangle-exclamation"></i> Masukkan URL Google Apps Script untuk mulai menyimpan data.
+    </div>
+
+    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 flex-grow w-full">
+
+        <div class="flex flex-wrap gap-2 border-b border-slate-200 pb-3 mb-6 no-print">
+            <button id="tab-dashboard" onclick="switchTab('dashboard')" class="tab-btn px-4 py-2 rounded-lg font-medium text-sm bg-indigo-600 text-white"><i class="fa-solid fa-chart-pie mr-1"></i> Dashboard</button>
+            <button id="tab-input" onclick="switchTab('input')" class="tab-btn px-4 py-2 rounded-lg font-medium text-sm text-slate-600 hover:bg-slate-100"><i class="fa-solid fa-pen-to-square mr-1"></i> Input Absensi</button>
+            <button id="tab-rekap" onclick="switchTab('rekap')" class="tab-btn px-4 py-2 rounded-lg font-medium text-sm text-slate-600 hover:bg-slate-100"><i class="fa-solid fa-clock-rotate-left mr-1"></i> Rekap Data</button>
+            <button id="tab-siswa" onclick="switchTab('siswa')" class="tab-btn px-4 py-2 rounded-lg font-medium text-sm text-slate-600 hover:bg-slate-100"><i class="fa-solid fa-users mr-1"></i> Data Siswa</button>
+        </div>
+
+        <div id="toast" class="hidden fixed bottom-5 right-5 z-50 bg-emerald-600 text-white px-4 py-3 rounded-xl shadow-lg flex items-center gap-2">
+            <i class="fa-solid fa-circle-check"></i> <span id="toast-message">Berhasil</span>
+        </div>
+
+        <div id="loading-overlay" class="hidden fixed inset-0 bg-slate-900/40 backdrop-blur-xs z-50 flex flex-col items-center justify-center text-white">
+            <i class="fa-solid fa-circle-notch fa-spin text-4xl mb-3 text-indigo-400"></i>
+            <p class="text-sm font-medium" id="loading-text">Memproses data...</p>
+        </div>
+
+        <!-- VIEW DASHBOARD -->
+        <section id="view-dashboard" class="tab-content space-y-6">
+            <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex justify-between items-center">
+                <div>
+                    <h2 class="text-lg font-bold">Ringkasan Presensi Hari Ini</h2>
+                    <p class="text-xs text-slate-500" id="dash-date-display">-</p>
+                </div>
+                <input type="date" id="dash-date-picker" onchange="updateDashboardMetrics()" class="border rounded-lg px-3 py-1.5 text-sm">
+            </div>
+
+            <div class="grid grid-cols-2 md:grid-cols-5 gap-4">
+                <div class="bg-white p-4 rounded-xl border"><p class="text-xs text-slate-500">Total Siswa</p><div id="dash-total" class="text-2xl font-bold">0</div></div>
+                <div class="bg-emerald-50 p-4 rounded-xl border border-emerald-100"><p class="text-xs text-emerald-600">Hadir</p><div id="dash-hadir" class="text-2xl font-bold text-emerald-700">0</div></div>
+                <div class="bg-amber-50 p-4 rounded-xl border border-amber-100"><p class="text-xs text-amber-600">Sakit</p><div id="dash-sakit" class="text-2xl font-bold text-amber-700">0</div></div>
+                <div class="bg-blue-50 p-4 rounded-xl border border-blue-100"><p class="text-xs text-blue-600">Izin</p><div id="dash-izin" class="text-2xl font-bold text-blue-700">0</div></div>
+                <div class="bg-rose-50 p-4 rounded-xl border border-rose-100"><p class="text-xs text-rose-600">Alpa</p><div id="dash-alpa" class="text-2xl font-bold text-rose-700">0</div></div>
+            </div>
+        </section>
+
+        <!-- VIEW INPUT ABSENSI -->
+        <section id="view-input" class="tab-content hidden space-y-4">
+            <div class="bg-white p-4 rounded-xl border border-slate-200 grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                    <label class="block text-xs font-bold uppercase mb-1">Kelas</label>
+                    <select id="input-kelas" onchange="renderAttendanceForm()" class="w-full border rounded-lg p-2 text-sm"></select>
+                </div>
+                <div>
+                    <label class="block text-xs font-bold uppercase mb-1">Tanggal</label>
+                    <input type="date" id="input-tanggal" onchange="renderAttendanceForm()" class="w-full border rounded-lg p-2 text-sm">
+                </div>
+                <div class="flex items-end">
+                    <button onclick="markAllStatus('Hadir')" class="bg-emerald-100 text-emerald-800 text-xs font-bold px-3 py-2.5 rounded-lg w-full">Set Semua Hadir</button>
+                </div>
+            </div>
+
+            <div class="bg-white rounded-xl border border-slate-200 overflow-hidden">
+                <table class="w-full text-left">
+                    <thead class="bg-slate-50 text-xs uppercase border-b">
+                        <tr><th class="p-3">No</th><th class="p-3">NIS</th><th class="p-3">Nama</th><th class="p-3 text-center">Status</th><th class="p-3">Catatan</th></tr>
+                    </thead>
+                    <tbody id="attendance-table-body" class="divide-y text-sm"></tbody>
+                </table>
+                <div class="p-4 bg-slate-50 flex justify-end">
+                    <button onclick="saveAttendance()" class="bg-indigo-600 text-white font-bold px-6 py-2 rounded-lg shadow"><i class="fa-solid fa-floppy-disk mr-1"></i> Simpan Absensi</button>
+                </div>
+            </div>
+        </section>
+
+        <!-- VIEW REKAP -->
+        <section id="view-rekap" class="tab-content hidden space-y-4">
+            <div class="bg-white p-4 rounded-xl border border-slate-200 grid grid-cols-1 md:grid-cols-3 gap-4 no-print">
+                <div>
+                    <label class="block text-xs font-bold uppercase mb-1">Kelas</label>
+                    <select id="rekap-filter-kelas" onchange="renderRekapTable()" class="w-full border rounded-lg p-2 text-sm"><option value="ALL">Semua Kelas</option></select>
+                </div>
+                <div>
+                    <label class="block text-xs font-bold uppercase mb-1">Dari Tanggal</label>
+                    <input type="date" id="rekap-date-start" onchange="renderRekapTable()" class="w-full border rounded-lg p-2 text-sm">
+                </div>
+                <div>
+                    <label class="block text-xs font-bold uppercase mb-1">Sampai Tanggal</label>
+                    <input type="date" id="rekap-date-end" onchange="renderRekapTable()" class="w-full border rounded-lg p-2 text-sm">
+                </div>
+            </div>
+
+            <div class="bg-white rounded-xl border overflow-hidden">
+                <table class="w-full text-left">
+                    <thead class="bg-slate-50 text-xs uppercase border-b">
+                        <tr><th class="p-3">Tanggal</th><th class="p-3">Kelas</th><th class="p-3">NIS</th><th class="p-3">Nama</th><th class="p-3 text-center">Status</th><th class="p-3">Keterangan</th></tr>
+                    </thead>
+                    <tbody id="rekap-table-body" class="divide-y text-sm"></tbody>
+                </table>
+            </div>
+        </section>
+
+        <!-- VIEW SISWA -->
+        <section id="view-siswa" class="tab-content hidden space-y-4">
+            <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+    <div>
+        <h2 class="text-lg font-bold text-slate-800">Manajemen Data Siswa</h2>
+        <p class="text-xs text-slate-500">Tambah manual atau unggah langsung dari file Excel/CSV.</p>
+    </div>
+    <div class="flex flex-wrap gap-2">
+        <button onclick="toggleModal('excelUploadModal')" class="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs px-4 py-2 rounded-lg shadow transition-all flex items-center gap-2">
+            <i class="fa-solid fa-file-excel"></i> Upload File Excel
+        </button>
+        <button onclick="openStudentModal()" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs px-4 py-2 rounded-lg shadow transition-all flex items-center gap-2">
+            <i class="fa-solid fa-user-plus"></i> Tambah Siswa Manual
+        </button>
+    </div>
+</div>
+            <div class="bg-white rounded-xl border overflow-hidden">
+                <table class="w-full text-left">
+                    <thead class="bg-slate-50 text-xs uppercase border-b">
+                        <tr><th class="p-3">NIS</th><th class="p-3">Nama Lengkap</th><th class="p-3">Kelas</th><th class="p-3">Gender</th><th class="p-3 text-center">Aksi</th></tr>
+                    </thead>
+                    <tbody id="siswa-table-body" class="divide-y text-sm"></tbody>
+                </table>
+            </div>
+        </section>
+<div id="excelUploadModal" class="hidden fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl relative space-y-4">
+        <button onclick="toggleModal('excelUploadModal')" class="absolute top-4 right-4 text-slate-400 hover:text-slate-600 text-lg">
+            <i class="fa-solid fa-xmark"></i>
+        </button>
+        <div class="flex items-center gap-3 text-emerald-600">
+            <i class="fa-solid fa-file-excel text-2xl"></i>
+            <h3 class="text-lg font-bold text-slate-800">Upload Data Siswa dari Excel</h3>
+        </div>
+        
+        <p class="text-xs text-slate-600">
+            Unggah file Excel atau CSV. Pastikan nama header kolom memuat: <b>NIS, Nama, Kelas, JK</b>.
+        </p>
+
+        <div class="border-2 border-dashed border-slate-300 hover:border-emerald-500 rounded-xl p-6 text-center transition-all bg-slate-50 cursor-pointer" onclick="document.getElementById('excelFileInput').click()">
+            <i class="fa-solid fa-cloud-arrow-up text-3xl text-emerald-600 mb-2"></i>
+            <p class="text-xs font-semibold text-slate-700">Klik di sini untuk memilih file Excel</p>
+            <p class="text-[10px] text-slate-400 mt-1">Format didukung: .xlsx, .xls, .csv</p>
+            <input type="file" id="excelFileInput" accept=".xlsx, .xls, .csv" onchange="handleExcelFileSelect(event)" class="hidden">
+        </div>
+
+        <div class="flex items-center justify-between pt-2">
+            <button onclick="downloadExcelTemplate()" class="text-xs text-indigo-600 hover:underline font-medium flex items-center gap-1">
+                <i class="fa-solid fa-download"></i> Download Template Excel
+            </button>
+            <button onclick="toggleModal('excelUploadModal')" class="bg-slate-200 text-slate-700 text-xs font-semibold px-4 py-2 rounded-lg">Batal</button>
+        </div>
+    </div>
+</div>
+    </main>
+
+    <!-- MODAL CONFIG GOOGLE APP SCRIPT -->
+    <div id="sheetConfigModal" class="hidden fixed inset-0 bg-slate-900/60 flex items-center justify-center p-4 z-50">
+        <div class="bg-white rounded-2xl max-w-lg w-full p-6 space-y-4">
+            <h3 class="font-bold text-lg">Konfigurasi Google Apps Script</h3>
+            <div>
+                <label class="block text-xs font-bold mb-1">Web App URL:</label>
+                <input type="url" id="input-script-url" placeholder="https://script.google.com/macros/s/.../exec" class="w-full border rounded-lg p-2 text-xs font-mono">
+            </div>
+            <div class="flex justify-end gap-2">
+                <button onclick="toggleModal('sheetConfigModal')" class="px-4 py-2 text-xs border rounded-lg">Batal</button>
+                <button onclick="saveScriptUrl()" class="px-4 py-2 text-xs bg-indigo-600 text-white rounded-lg font-bold">Simpan URL</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL TAMBAH SISWA -->
+    <div id="studentModal" class="hidden fixed inset-0 bg-slate-900/60 flex items-center justify-center p-4 z-50">
+        <div class="bg-white rounded-2xl max-w-md w-full p-6 space-y-3">
+            <h3 id="student-modal-title" class="font-bold text-lg">Tambah Siswa</h3>
+            <form id="student-form" onsubmit="handleSaveStudent(event)" class="space-y-3">
+                <input type="hidden" id="student-id">
+                <input type="text" id="student-nis" placeholder="NIS" required class="w-full border rounded-lg p-2 text-sm">
+                <input type="text" id="student-name" placeholder="Nama Lengkap" required class="w-full border rounded-lg p-2 text-sm">
+                <input type="text" id="student-class" placeholder="Kelas (misal: 10-A)" required class="w-full border rounded-lg p-2 text-sm">
+                <select id="student-gender" class="w-full border rounded-lg p-2 text-sm">
+                    <option value="L">Laki-laki</option>
+                    <option value="P">Perempuan</option>
+                </select>
+                <div class="flex justify-end gap-2 pt-2">
+                    <button type="button" onclick="toggleModal('studentModal')" class="px-4 py-2 text-xs border rounded-lg">Batal</button>
+                    <button type="submit" class="px-4 py-2 text-xs bg-indigo-600 text-white rounded-lg font-bold">Simpan</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script>
+function handleExcelFileSelect(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    showLoading(true, "Membaca file Excel...");
+    const reader = new FileReader();
+
+    reader.onload = async function(e) {
+        try {
+            const data = new Uint8Array(e.target.result);
+            const workbook = XLSX.read(data, { type: 'array' });
+            const sheetName = workbook.SheetNames[0];
+            const worksheet = workbook.Sheets[sheetName];
+            const jsonData = XLSX.utils.sheet_to_json(worksheet, { defval: "" });
+
+            if(jsonData.length === 0) {
+                showLoading(false);
+                return alert("File Excel kosong!");
+            }
+
+            let addedCount = 0;
+            jsonData.forEach((row, index) => {
+                const nis = row['NIS'] || row['nis'] || row['Nis'] || `NIS-${index+1}`;
+                const name = row['Nama'] || row['NAMA'] || row['Nama Lengkap'] || row['name'] || '';
+                const sClass = row['Kelas'] || row['KELAS'] || row['class'] || 'Kelas Umum';
+                let gender = row['JK'] || row['Jk'] || row['Jenis Kelamin'] || row['gender'] || 'L';
+                
+                if(gender.toString().toUpperCase().startsWith('P')) gender = 'P';
+                else gender = 'L';
+
+                if(name) {
+                    students.push({
+                        id: (Date.now() + index).toString(),
+                        nis: nis.toString(),
+                        name: name.toString(),
+                        class: sClass.toString(),
+                        gender: gender
+                    });
+                    addedCount++;
+                }
+            });
+
+            showLoading(false);
+            toggleModal('excelUploadModal');
+            showToast(`Berhasil mengimpor ${addedCount} data siswa dari Excel!`);
+            await syncStudentsToCloud();
+        } catch(err) {
+            showLoading(false);
+            alert("Gagal membaca file Excel. Pastikan format file sesuai.");
+        }
+    };
+    reader.readAsArrayBuffer(file);
+}
+
+function downloadExcelTemplate() {
+    const sampleData = [
+        { "NIS": "1001", "Nama Lengkap": "Ahmad Rizky", "Kelas": "Kelas 10-A", "Jenis Kelamin": "L" },
+        { "NIS": "1002", "Nama Lengkap": "Siti Nurhaliza", "Kelas": "Kelas 10-A", "Jenis Kelamin": "P" }
+    ];
+    const ws = XLSX.utils.json_to_sheet(sampleData);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Siswa");
+    XLSX.writeFile(wb, "Template_Data_Siswa.xlsx");
+}
+        let SCRIPT_URL = localStorage.getItem('absensi_script_url') || '';
+        let students = JSON.parse(localStorage.getItem('absensi_students')) || [];
+        let attendanceRecords = JSON.parse(localStorage.getItem('absensi_records')) || [];
+
+        window.onload = async function() {
+            const today = new Date().toISOString().split('T')[0];
+            document.getElementById('dash-date-picker').value = today;
+            document.getElementById('input-tanggal').value = today;
+            document.getElementById('rekap-date-start').value = today;
+            document.getElementById('rekap-date-end').value = today;
+
+            if (SCRIPT_URL) {
+                document.getElementById('input-script-url').value = SCRIPT_URL;
+                updateSyncStatus(true);
+                await loadDataFromGoogleSheet();
+            } else {
+                updateSyncStatus(false);
+                refreshAllUI();
+            }
+        };
+
+        function showLoading(show, text = "Memproses...") {
+            const el = document.getElementById('loading-overlay');
+            document.getElementById('loading-text').innerText = text;
+            if (show) el.classList.remove('hidden'); else el.classList.add('hidden');
+        }
+
+        function updateSyncStatus(isConnected) {
+            const bar = document.getElementById('sync-status-bar');
+            if (isConnected) {
+                bar.className = "bg-emerald-600 text-white text-xs py-1.5 px-4 text-center font-medium no-print";
+                bar.innerHTML = `<i class="fa-solid fa-cloud-check"></i> Terhubung dengan Google Sheets Database.`;
+            } else {
+                bar.className = "bg-amber-500 text-white text-xs py-1.5 px-4 text-center font-medium no-print";
+                bar.innerHTML = `<i class="fa-solid fa-triangle-exclamation"></i> Belum terhubung ke Google Drive. Klik "Hubungkan Google Sheet".`;
+            }
+        }
+
+        function saveScriptUrl() {
+            const url = document.getElementById('input-script-url').value.trim();
+            localStorage.setItem('absensi_script_url', url);
+            SCRIPT_URL = url;
+            updateSyncStatus(!!url);
+            toggleModal('sheetConfigModal');
+            if (url) loadDataFromGoogleSheet();
+        }
+
+        async function loadDataFromGoogleSheet() {
+            if(!SCRIPT_URL) return;
+            showLoading(true, "Mengambil data terbaru...");
+            try {
+                const res = await fetch(SCRIPT_URL);
+                const data = await res.json();
+                if(data.students) students = data.students;
+                if(data.records) attendanceRecords = data.records;
+                localStorage.setItem('absensi_students', JSON.stringify(students));
+                localStorage.setItem('absensi_records', JSON.stringify(attendanceRecords));
+                refreshAllUI();
+            } catch(e) {
+                console.error(e);
+            } finally {
+                showLoading(false);
+            }
+        }
+
+        function refreshAllUI() {
+            populateClassDropdowns();
+            updateDashboardMetrics();
+            renderStudentTable();
+            renderAttendanceForm();
+            renderRekapTable();
+        }
+
+        function switchTab(tabName) {
+            document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
+            document.querySelectorAll('.tab-btn').forEach(btn => btn.className = 'tab-btn px-4 py-2 rounded-lg font-medium text-sm text-slate-600 hover:bg-slate-100');
+            document.getElementById(`view-${tabName}`).classList.remove('hidden');
+            document.getElementById(`tab-${tabName}`).className = 'tab-btn px-4 py-2 rounded-lg font-medium text-sm bg-indigo-600 text-white';
+            if(tabName === 'dashboard') updateDashboardMetrics();
+            if(tabName === 'input') renderAttendanceForm();
+            if(tabName === 'rekap') renderRekapTable();
+            if(tabName === 'siswa') renderStudentTable();
+        }
+
+        function toggleModal(id) { document.getElementById(id).classList.toggle('hidden'); }
+
+        function showToast(msg) {
+            const t = document.getElementById('toast');
+            document.getElementById('toast-message').innerText = msg;
+            t.classList.remove('hidden');
+            setTimeout(() => t.classList.add('hidden'), 3000);
+        }
+
+        function populateClassDropdowns() {
+            const classes = [...new Set(students.map(s => s.class))].sort();
+            const inputSelect = document.getElementById('input-kelas');
+            const rekapSelect = document.getElementById('rekap-filter-kelas');
+            if(inputSelect) inputSelect.innerHTML = classes.map(c => `<option value="${c}">${c}</option>`).join('');
+            if(rekapSelect) rekapSelect.innerHTML = `<option value="ALL">Semua Kelas</option>` + classes.map(c => `<option value="${c}">${c}</option>`).join('');
+        }
+
+        function updateDashboardMetrics() {
+            const selectedDate = document.getElementById('dash-date-picker').value;
+            document.getElementById('dash-date-display').innerText = selectedDate;
+            const recordsToday = attendanceRecords.filter(r => r.date === selectedDate);
+            let h = 0, s = 0, i = 0, a = 0;
+            students.forEach(st => {
+                const rec = recordsToday.find(r => r.nis === st.nis);
+                const status = rec ? rec.status : 'Hadir';
+                if(status === 'Hadir') h++;
+                else if(status === 'Sakit') s++;
+                else if(status === 'Izin') i++;
+                else if(status === 'Alpa') a++;
+            });
+            document.getElementById('dash-total').innerText = students.length;
+            document.getElementById('dash-hadir').innerText = h;
+            document.getElementById('dash-sakit').innerText = s;
+            document.getElementById('dash-izin').innerText = i;
+            document.getElementById('dash-alpa').innerText = a;
+        }
+
+        function renderAttendanceForm() {
+            const selectedClass = document.getElementById('input-kelas').value;
+            const selectedDate = document.getElementById('input-tanggal').value;
+            const classStudents = students.filter(s => s.class === selectedClass);
+            const existingRecords = attendanceRecords.filter(r => r.date === selectedDate && r.class === selectedClass);
+            const tbody = document.getElementById('attendance-table-body');
+
+            if(classStudents.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="5" class="p-4 text-center text-slate-400">Tidak ada siswa. Tambahkan data siswa dulu.</td></tr>`;
+                return;
+            }
+
+            tbody.innerHTML = classStudents.map((st, idx) => {
+                const rec = existingRecords.find(r => r.nis === st.nis);
+                const currStatus = rec ? rec.status : 'Hadir';
+                const currNote = rec ? rec.note : '';
+                return `
+                    <tr>
+                        <td class="p-3">${idx + 1}</td>
+                        <td class="p-3 font-mono text-xs">${st.nis}</td>
+                        <td class="p-3 font-medium">${st.name}</td>
+                        <td class="p-3 text-center">
+                            <select id="status-${st.nis}" class="border rounded px-2 py-1 text-xs">
+                                <option value="Hadir" ${currStatus==='Hadir'?'selected':''}>Hadir</option>
+                                <option value="Sakit" ${currStatus==='Sakit'?'selected':''}>Sakit</option>
+                                <option value="Izin" ${currStatus==='Izin'?'selected':''}>Izin</option>
+                                <option value="Alpa" ${currStatus==='Alpa'?'selected':''}>Alpa</option>
+                            </select>
+                        </td>
+                        <td class="p-3"><input type="text" id="note-${st.nis}" value="${currNote}" placeholder="Opsional..." class="w-full border rounded px-2 py-1 text-xs"></td>
+                    </tr>`;
+            }).join('');
+        }
+
+        function markAllStatus(status) {
+            document.querySelectorAll('[id^="status-"]').forEach(sel => sel.value = status);
+        }
+
+        async function saveAttendance() {
+            const selectedClass = document.getElementById('input-kelas').value;
+            const selectedDate = document.getElementById('input-tanggal').value;
+            const classStudents = students.filter(s => s.class === selectedClass);
+
+            attendanceRecords = attendanceRecords.filter(r => !(r.date === selectedDate && r.class === selectedClass));
+
+            let newBatch = [];
+            classStudents.forEach(st => {
+                const status = document.getElementById(`status-${st.nis}`).value;
+                const note = document.getElementById(`note-${st.nis}`).value;
+                const rec = { date: selectedDate, class: selectedClass, nis: st.nis, name: st.name, status, note };
+                attendanceRecords.push(rec);
+                newBatch.push(rec);
+            });
+
+            localStorage.setItem('absensi_records', JSON.stringify(attendanceRecords));
+
+            if (SCRIPT_URL) {
+                showLoading(true, "Menyimpan ke Cloud...");
+                try {
+                    // Penambahan header text/plain mencegah error CORS saat multi-user
+                    await fetch(SCRIPT_URL, {
+                        method: "POST",
+                        headers: { "Content-Type": "text/plain;charset=utf-8" },
+                        body: JSON.stringify({ action: "saveAttendance", date: selectedDate, class: selectedClass, records: newBatch })
+                    });
+                    showToast('Berhasil disimpan ke Google Sheets!');
+                } catch(e) {
+                    showToast('Tersimpan di lokal');
+                } finally {
+                    showLoading(false);
+                }
+            } else {
+                showToast('Tersimpan di lokal');
+            }
+            updateDashboardMetrics();
+        }
+
+        function renderRekapTable() {
+            const filterClass = document.getElementById('rekap-filter-kelas').value;
+            const dateStart = document.getElementById('rekap-date-start').value;
+            const dateEnd = document.getElementById('rekap-date-end').value;
+
+            let filtered = attendanceRecords.filter(r => {
+                let matchClass = (filterClass === 'ALL' || r.class === filterClass);
+                let matchDate = (r.date >= dateStart && r.date <= dateEnd);
+                return matchClass && matchDate;
+            });
+
+            const tbody = document.getElementById('rekap-table-body');
+            if(filtered.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="6" class="p-4 text-center text-slate-400">Tidak ada data rekap.</td></tr>`;
+                return;
+            }
+
+            tbody.innerHTML = filtered.map(r => `
+                <tr>
+                    <td class="p-3">${r.date}</td>
+                    <td class="p-3">${r.class}</td>
+                    <td class="p-3 font-mono text-xs">${r.nis}</td>
+                    <td class="p-3 font-medium">${r.name}</td>
+                    <td class="p-3 text-center"><span class="px-2 py-0.5 rounded text-xs font-bold bg-slate-100">${r.status}</span></td>
+                    <td class="p-3 text-xs text-slate-500">${r.note || '-'}</td>
+                </tr>
+            `).join('');
+        }
+
+        function renderStudentTable() {
+            const tbody = document.getElementById('siswa-table-body');
+            tbody.innerHTML = students.map(st => `
+                <tr>
+                    <td class="p-3 font-mono text-xs">${st.nis}</td>
+                    <td class="p-3 font-medium">${st.name}</td>
+                    <td class="p-3">${st.class}</td>
+                    <td class="p-3">${st.gender === 'L' ? 'Laki-laki' : 'Perempuan'}</td>
+                    <td class="p-3 text-center">
+                        <button onclick="deleteStudent('${st.id}')" class="text-rose-500 hover:text-rose-700 text-xs"><i class="fa-solid fa-trash"></i></button>
+                    </td>
+                </tr>
+            `).join('');
+        }
+
+        function openStudentModal() {
+            document.getElementById('student-form').reset();
+            document.getElementById('student-id').value = "";
+            toggleModal('studentModal');
+        }
+
+        async function handleSaveStudent(e) {
+            e.preventDefault();
+            const nis = document.getElementById('student-nis').value;
+            const name = document.getElementById('student-name').value;
+            const sClass = document.getElementById('student-class').value;
+            const gender = document.getElementById('student-gender').value;
+
+            students.push({ id: Date.now().toString(), nis, name, class: sClass, gender });
+            toggleModal('studentModal');
+            await syncStudentsToCloud();
+        }
+
+        async function deleteStudent(id) {
+            if(confirm('Hapus siswa?')) {
+                students = students.filter(s => s.id !== id);
+                await syncStudentsToCloud();
+            }
+        }
+
+        async function syncStudentsToCloud() {
+            localStorage.setItem('absensi_students', JSON.stringify(students));
+            refreshAllUI();
+            if (SCRIPT_URL) {
+                showLoading(true, "Menyinkronkan siswa...");
+                try {
+                    await fetch(SCRIPT_URL, {
+                        method: "POST",
+                        headers: { "Content-Type": "text/plain;charset=utf-8" },
+                        body: JSON.stringify({ action: "syncAllStudents", students: students })
+                    });
+                    showToast('Siswa diperbarui!');
+                } catch(e) {}
+                finally { showLoading(false); }
+            }
+        }
+    </script>
+</body>
+</html>
